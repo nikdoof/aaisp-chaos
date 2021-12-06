@@ -1,7 +1,10 @@
-FROM alpine
+FROM golang:1.17.4-alpine3.15 as build
+WORKDIR /build
+COPY . .
+RUN go get -d -v .
+RUN go build -v ./cmd/aaisp_exporter .
 
-COPY cmd/aaisp_exporter/aaisp_exporter /usr/local/bin/aaisp_exporter
-
-EXPOSE 8080
-
-ENTRYPOINT ["/usr/local/bin/aaisp_exporter"]
+FROM alpine:3.15.0
+WORKDIR /service
+COPY --from=build /build/aaisp_exporter .
+ENTRYPOINT ["./aaisp_exporter"]%
