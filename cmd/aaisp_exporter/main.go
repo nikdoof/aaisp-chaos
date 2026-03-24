@@ -227,9 +227,13 @@ func main() {
 
 	prometheus.MustRegister(collector)
 	prometheus.MustRegister(scrapeSuccessGauge)
+	prometheus.MustRegister(prometheus.NewBuildInfoCollector())
 
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", loggingMiddleware(log)(promhttp.Handler()))
+	mux.Handle("/metrics", loggingMiddleware(log)(promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{EnableOpenMetrics: true},
+	)))
 
 	server := &http.Server{
 		Addr:    *listen,
