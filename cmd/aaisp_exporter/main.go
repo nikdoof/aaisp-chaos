@@ -32,15 +32,27 @@ var (
 		[]string{"line_id"},
 		nil,
 	)
+	broadbandLineInfoDesc = prometheus.NewDesc(
+		"aaisp_broadband_line_info",
+		"Static information about a broadband line",
+		[]string{"line_id", "login", "postcode"},
+		nil,
+	)
 	broadbandTXRateDesc = prometheus.NewDesc(
 		"aaisp_broadband_tx_rate",
-		"Line transmit rate in bits per second",
+		"Maximum download rate in bits per second (AAISP transmit)",
+		[]string{"line_id"},
+		nil,
+	)
+	broadbandTXRateAdjustedDesc = prometheus.NewDesc(
+		"aaisp_broadband_tx_rate_adjusted",
+		"Adjusted download rate in bits per second after any throttling (AAISP transmit)",
 		[]string{"line_id"},
 		nil,
 	)
 	broadbandRXRateDesc = prometheus.NewDesc(
 		"aaisp_broadband_rx_rate",
-		"Line receive rate in bits per second",
+		"Maximum upload rate in bits per second (AAISP receive)",
 		[]string{"line_id"},
 		nil,
 	)
@@ -78,21 +90,35 @@ func (bc broadbandCollector) Collect(ch chan<- prometheus.Metric) {
 	for _, line := range lines {
 		lineID := strconv.Itoa(line.ID)
 		ch <- prometheus.MustNewConstMetric(
-			broadbandQuotaRemainingDesc,
+			broadbandLineInfoDesc,
 			prometheus.GaugeValue,
-			float64(line.QuotaRemaining),
-			lineID,
+			1,
+			lineID, line.Login, line.Postcode,
 		)
-		ch <- prometheus.MustNewConstMetric(
-			broadbandQuotaTotalDesc,
-			prometheus.CounterValue,
-			float64(line.QuotaMonthly),
-			lineID,
-		)
+		if line.QuotaMonthly > 0 {
+			ch <- prometheus.MustNewConstMetric(
+				broadbandQuotaRemainingDesc,
+				prometheus.GaugeValue,
+				float64(line.QuotaRemaining),
+				lineID,
+			)
+			ch <- prometheus.MustNewConstMetric(
+				broadbandQuotaTotalDesc,
+				prometheus.CounterValue,
+				float64(line.QuotaMonthly),
+				lineID,
+			)
+		}
 		ch <- prometheus.MustNewConstMetric(
 			broadbandTXRateDesc,
 			prometheus.GaugeValue,
 			float64(line.TXRate),
+			lineID,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			broadbandTXRateAdjustedDesc,
+			prometheus.GaugeValue,
+			float64(line.TXRateAdjusted),
 			lineID,
 		)
 		ch <- prometheus.MustNewConstMetric(

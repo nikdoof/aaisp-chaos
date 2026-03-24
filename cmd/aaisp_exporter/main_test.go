@@ -34,13 +34,28 @@ func collectMetrics(t *testing.T, c prometheus.Collector) []prometheus.Metric {
 func TestCollectSuccess(t *testing.T) {
 	mc := &mockClient{
 		lines: []chaos.BroadbandInfo{
-			{ID: 12345, TXRate: 80000000, RXRate: 20000000, QuotaMonthly: 107374182400, QuotaRemaining: 53687091200},
+			{ID: 12345, Login: "test@a.1", Postcode: "SW1A1AA", TXRate: 80000000, TXRateAdjusted: 79000000, RXRate: 20000000, QuotaMonthly: 107374182400, QuotaRemaining: 53687091200},
 		},
 	}
 	collector := broadbandCollector{client: mc, log: slog.Default()}
 
 	metrics := collectMetrics(t, collector)
-	// 4 metrics per line: quota_remaining, quota_total, tx_rate, rx_rate
+	// 6 metrics per quota line: line_info, quota_remaining, quota_total, tx_rate, tx_rate_adjusted, rx_rate
+	if len(metrics) != 6 {
+		t.Errorf("got %d metrics, want 6", len(metrics))
+	}
+}
+
+func TestCollectUnlimitedLine(t *testing.T) {
+	mc := &mockClient{
+		lines: []chaos.BroadbandInfo{
+			{ID: 57937, Login: "test@a.2", Postcode: "WA9 1SX", TXRate: 1000000000, TXRateAdjusted: 994690000, RXRate: 1000000000, QuotaMonthly: 0},
+		},
+	}
+	collector := broadbandCollector{client: mc, log: slog.Default()}
+
+	metrics := collectMetrics(t, collector)
+	// 4 metrics for unlimited line: line_info, tx_rate, tx_rate_adjusted, rx_rate (no quota metrics)
 	if len(metrics) != 4 {
 		t.Errorf("got %d metrics, want 4", len(metrics))
 	}
@@ -49,15 +64,16 @@ func TestCollectSuccess(t *testing.T) {
 func TestCollectMultipleLines(t *testing.T) {
 	mc := &mockClient{
 		lines: []chaos.BroadbandInfo{
-			{ID: 11111, TXRate: 80000000, RXRate: 20000000, QuotaMonthly: 107374182400, QuotaRemaining: 53687091200},
-			{ID: 22222, TXRate: 40000000, RXRate: 10000000, QuotaMonthly: 53687091200, QuotaRemaining: 26843545600},
+			{ID: 11111, Login: "test@a.1", Postcode: "SW1A1AA", TXRate: 80000000, TXRateAdjusted: 79000000, RXRate: 20000000, QuotaMonthly: 107374182400, QuotaRemaining: 53687091200},
+			{ID: 22222, Login: "test@a.2", Postcode: "WA9 1SX", TXRate: 40000000, TXRateAdjusted: 39000000, RXRate: 10000000, QuotaMonthly: 53687091200, QuotaRemaining: 26843545600},
 		},
 	}
 	collector := broadbandCollector{client: mc, log: slog.Default()}
 
 	metrics := collectMetrics(t, collector)
-	if len(metrics) != 8 {
-		t.Errorf("got %d metrics, want 8", len(metrics))
+	// 6 metrics per quota line × 2 lines
+	if len(metrics) != 12 {
+		t.Errorf("got %d metrics, want 12", len(metrics))
 	}
 }
 

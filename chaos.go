@@ -68,7 +68,7 @@ func userAgent() string {
 var httpClient = &http.Client{}
 
 func (api API) makeRequest(ctx context.Context, path string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", api.Endpoint+path, strings.NewReader(api.login.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", api.Endpoint+path+"/json", strings.NewReader(api.login.Encode()))
 	if err != nil {
 		return nil, err
 	}

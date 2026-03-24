@@ -2,13 +2,64 @@
 
 A Prometheus exporter for information about [Andrews and Arnold](https://aa.net.uk) broadband lines.
 
-It exposes metrics:
+## Metrics
 
-* **aaisp_broadband_quota_remaining**: The line's remaining in the current monthly quota in bytes
-* **aaisp_broadband_quota_total**: The line's monthly quota in bytes, excluding rollover
-* **aaisp_broadband_rx_rate**: The line's receive (upload) rate in bits per second
-* **aaisp_broadband_tx_rate**: The line's transmit (download) rate in bits per second
+All metrics carry a `line_id` label containing the AAISP line ID.
 
-To run the service you must export environment variables `CHAOS_CONTROL_LOGIN` and `CHAOS_CONTROL_PASSWORD` using the login details you use for https://control.aa.net.uk/.
+| Metric | Type | Description |
+|--------|------|-------------|
+| `aaisp_broadband_line_info` | Gauge | Always `1`. Carries `line_id`, `login`, and `postcode` labels for use in dashboard queries. |
+| `aaisp_broadband_tx_rate` | Gauge | Maximum download rate in bits per second (AAISP transmit). |
+| `aaisp_broadband_tx_rate_adjusted` | Gauge | Adjusted download rate in bits per second after any throttling applied by AAISP. |
+| `aaisp_broadband_rx_rate` | Gauge | Maximum upload rate in bits per second (AAISP receive). |
+| `aaisp_broadband_quota_remaining` | Gauge | Remaining quota in the current monthly period, in bytes. |
+| `aaisp_broadband_quota_total` | Counter | Total monthly quota in bytes. |
+| `aaisp_scrape_success` | Gauge | `1` if the last scrape of the AAISP API succeeded, `0` otherwise. |
 
-The service takess a `-listen` flag for setting the address and port the service binds to. The default is `:8080`.
+### Quota metrics
+
+`aaisp_broadband_quota_remaining` and `aaisp_broadband_quota_total` are only emitted for lines with a **quota-limited** service. Lines on an unlimited quota plan (where the API returns `quota_monthly` of `0`) do not produce these metrics, avoiding misleading zero values.
+
+### Joining line metadata in queries
+
+`aaisp_broadband_line_info` is an info metric that can be joined onto other metrics to enrich graphs with the login name or postcode:
+
+```promql
+aaisp_broadband_tx_rate
+  * on(line_id) group_left(login, postcode)
+  aaisp_broadband_line_info
+```
+
+## Configuration
+
+The following environment variables must be set:
+
+| Variable | Description |
+|----------|-------------|
+| `CHAOS_CONTROL_LOGIN` | Control pages login, e.g. `something@a` |
+| `CHAOS_CONTROL_PASSWORD` | Control pages password |
+
+## Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-listen` | `:8080` | Address and port to bind to |
+| `-log.level` | `info` | Log level: `debug`, `info`, `warn`, `error` |
+| `-log.output` | `json` | Log format: `json` or `console` |
+
+## Running
+
+```sh
+export CHAOS_CONTROL_LOGIN=something@a
+export CHAOS_CONTROL_PASSWORD=yourpassword
+./aaisp_exporter
+```
+
+Or with Docker:
+
+```sh
+docker run -e CHAOS_CONTROL_LOGIN=something@a \
+           -e CHAOS_CONTROL_PASSWORD=yourpassword \
+           -p 8080:8080 \
+           ghcr.io/nikdoof/aaisp-exporter:latest
+```
