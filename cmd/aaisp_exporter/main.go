@@ -1,17 +1,22 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
+	"time"
 
-	chaos "github.com/jamesog/aaisp-chaos"
+	chaos "github.com/nikdoof/aaisp-chaos"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/rs/zerolog"
 )
 
 var (
@@ -45,9 +50,14 @@ var (
 	})
 )
 
+// broadbandInfoFetcher is satisfied by *chaos.API and can be mocked in tests.
+type broadbandInfoFetcher interface {
+	BroadbandInfo(ctx context.Context) ([]chaos.BroadbandInfo, error)
+}
+
 type broadbandCollector struct {
-	*chaos.API
-	log zerolog.Logger
+	client broadbandInfoFetcher
+	log    *slog.Logger
 }
 
 func (bc broadbandCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -55,58 +65,61 @@ func (bc broadbandCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (bc broadbandCollector) Collect(ch chan<- prometheus.Metric) {
-	lines, err := bc.BroadbandInfo()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	lines, err := bc.client.BroadbandInfo(ctx)
 	if err != nil {
-		bc.log.Debug().Err(err).Msg("error getting broadband info")
+		bc.log.Debug("error getting broadband info", "error", err)
 		scrapeSuccessGauge.Set(0)
 		return
 	}
 	scrapeSuccessGauge.Set(1)
 	for _, line := range lines {
+		lineID := strconv.Itoa(line.ID)
 		ch <- prometheus.MustNewConstMetric(
 			broadbandQuotaRemainingDesc,
 			prometheus.GaugeValue,
 			float64(line.QuotaRemaining),
-			strconv.Itoa(line.ID),
+			lineID,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			broadbandQuotaTotalDesc,
 			prometheus.CounterValue,
 			float64(line.QuotaMonthly),
-			strconv.Itoa(line.ID),
+			lineID,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			broadbandTXRateDesc,
 			prometheus.GaugeValue,
 			float64(line.TXRate),
-			strconv.Itoa(line.ID),
+			lineID,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			broadbandRXRateDesc,
 			prometheus.GaugeValue,
 			float64(line.RXRate),
-			strconv.Itoa(line.ID),
+			lineID,
 		)
 	}
 }
 
-func loggingMiddleware(log zerolog.Logger) func(next http.Handler) http.Handler {
+func loggingMiddleware(log *slog.Logger) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		fn := func(w http.ResponseWriter, r *http.Request) {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
 			if err != nil {
 				remoteHost = r.RemoteAddr
 			}
-			log.Log().
-				Str("proto", r.Proto).
-				Str("method", r.Method).
-				Str("path", r.URL.Path).
-				Str("remote_addr", remoteHost).
-				Str("user_agent", r.Header.Get("User-Agent")).
-				Send()
+			log.Info("request",
+				"proto", r.Proto,
+				"method", r.Method,
+				"path", r.URL.Path,
+				"remote_addr", remoteHost,
+				"user_agent", r.Header.Get("User-Agent"),
+			)
 			next.ServeHTTP(w, r)
-		}
-		return http.HandlerFunc(fn)
+		})
 	}
 }
 
@@ -128,20 +141,26 @@ func usage(fs *flag.FlagSet) func() {
 	}
 }
 
-func setupLogger(level, output string) zerolog.Logger {
-	ll, err := zerolog.ParseLevel(level)
-	if err != nil {
-		ll = zerolog.InfoLevel
+func setupLogger(level, output string) *slog.Logger {
+	var lvl slog.Level
+	switch level {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
 	}
-
-	log := zerolog.New(os.Stderr).Level(ll).With().Timestamp().Logger()
-
-	switch output {
-	case "console":
-		log = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	opts := &slog.HandlerOptions{Level: lvl}
+	var handler slog.Handler
+	if output == "console" {
+		handler = slog.NewTextHandler(os.Stderr, opts)
+	} else {
+		handler = slog.NewJSONHandler(os.Stderr, opts)
 	}
-
-	return log
+	return slog.New(handler)
 }
 
 func main() {
@@ -162,26 +181,50 @@ func main() {
 	)
 	switch {
 	case controlLogin == "" && controlPassword == "":
-		log.Fatal().Msg("CHAOS_CONTROL_LOGIN and CHAOS_CONTROL_PASSWORD must be set in the environment")
+		log.Error("CHAOS_CONTROL_LOGIN and CHAOS_CONTROL_PASSWORD must be set in the environment")
+		os.Exit(1)
 	case controlLogin == "":
-		log.Fatal().Msg("CHAOS_CONTROL_LOGIN is not set")
+		log.Error("CHAOS_CONTROL_LOGIN is not set")
+		os.Exit(1)
 	case controlPassword == "":
-		log.Fatal().Msg("CHAOS_CONTROL_PASSWORD is not set")
+		log.Error("CHAOS_CONTROL_PASSWORD is not set")
+		os.Exit(1)
 	}
 
 	collector := broadbandCollector{
-		API: chaos.New(chaos.Auth{
+		client: chaos.New(chaos.Auth{
 			ControlLogin:    controlLogin,
 			ControlPassword: controlPassword,
 		}),
 		log: log,
 	}
 
-	loggedHandler := loggingMiddleware(log)
-
 	prometheus.MustRegister(collector)
 	prometheus.MustRegister(scrapeSuccessGauge)
-	http.Handle("/metrics", loggedHandler(promhttp.Handler()))
-	log.Info().Msgf("Listening on %s", *listen)
-	log.Fatal().Err(http.ListenAndServe(*listen, nil)).Send()
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", loggingMiddleware(log)(promhttp.Handler()))
+
+	server := &http.Server{
+		Addr:    *listen,
+		Handler: mux,
+	}
+
+	go func() {
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		<-quit
+		log.Info("shutting down server")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Error("server shutdown error", "error", err)
+		}
+	}()
+
+	log.Info("listening", "addr", *listen)
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Error("server error", "error", err)
+		os.Exit(1)
+	}
 }

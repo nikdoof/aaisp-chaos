@@ -2,10 +2,11 @@
 package chaos
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -57,42 +58,42 @@ func (a Auth) form() url.Values {
 }
 
 func userAgent() string {
-	return fmt.Sprintf("chaos-go (%s; %s; %s) github.com/jamesog/aaisp-chaos",
+	return fmt.Sprintf("chaos-go (%s; %s; %s) github.com/nikdoof/aaisp-chaos",
 		runtime.GOOS,
 		runtime.GOARCH,
 		runtime.Version(),
 	)
 }
 
-func (api API) makeRequest(url string) ([]byte, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
+var httpClient = &http.Client{}
 
-	req, err := http.NewRequest("POST", api.Endpoint+url, strings.NewReader(api.login.Encode()))
+func (api API) makeRequest(ctx context.Context, path string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", api.Endpoint+path, strings.NewReader(api.login.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", userAgent())
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := client.Do(req)
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
-
-	body, err := ioutil.ReadAll(resp.Body)
 	defer resp.Body.Close()
-	if err != nil {
-		return nil, fmt.Errorf("error reading response body: %w", err)
-	}
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("bad response code: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response body: %w", err)
 	}
 
 	return body, nil
 }
 
-// The API returns timestamps in the format "YYYY-mm-dd HH:mm:ss" rather than RFC3389.
+// The API returns timestamps in the format "YYYY-mm-dd HH:mm:ss" rather than RFC3339.
 //
 // Use a custom type to unmarshal JSON to this format.
 type chaosTime struct {
@@ -128,8 +129,8 @@ type BroadbandInfo struct {
 }
 
 // BroadbandInfo fetches broadband info.
-func (api API) BroadbandInfo() ([]BroadbandInfo, error) {
-	resp, err := api.makeRequest("/broadband/info")
+func (api API) BroadbandInfo(ctx context.Context) ([]BroadbandInfo, error) {
+	resp, err := api.makeRequest(ctx, "/broadband/info")
 	if err != nil {
 		return nil, err
 	}
@@ -137,8 +138,7 @@ func (api API) BroadbandInfo() ([]BroadbandInfo, error) {
 		Info  []BroadbandInfo `json:"info"`
 		Error string          `json:"error"`
 	}{}
-	err = json.Unmarshal(resp, &r)
-	if err != nil {
+	if err = json.Unmarshal(resp, &r); err != nil {
 		return nil, fmt.Errorf("BroadbandInfo JSON decode: %w", err)
 	}
 	if r.Error != "" {
@@ -147,17 +147,17 @@ func (api API) BroadbandInfo() ([]BroadbandInfo, error) {
 	return r.Info, nil
 }
 
-// BroadbandQuota is quota.
+// BroadbandQuota is quota information for a broadband line.
 type BroadbandQuota struct {
 	ID             int       `json:"id,string"`
-	QuotaMonthly   int       `json:"quota_monthly"`
+	QuotaMonthly   int       `json:"quota_monthly,string"`
 	QuotaRemaining int       `json:"quota_remaining,string"`
-	QuotaTimestamp chaosTime `json:"quota_timestamp,string"`
+	QuotaTimestamp chaosTime `json:"quota_timestamp"`
 }
 
 // BroadbandQuota fetches the broadband quota.
-func (api API) BroadbandQuota() ([]BroadbandQuota, error) {
-	resp, err := api.makeRequest("/broadband/quota")
+func (api API) BroadbandQuota(ctx context.Context) ([]BroadbandQuota, error) {
+	resp, err := api.makeRequest(ctx, "/broadband/quota")
 	if err != nil {
 		return nil, err
 	}
@@ -165,8 +165,7 @@ func (api API) BroadbandQuota() ([]BroadbandQuota, error) {
 		Quota []BroadbandQuota `json:"quota"`
 		Error string           `json:"error"`
 	}{}
-	err = json.Unmarshal(resp, &r)
-	if err != nil {
+	if err = json.Unmarshal(resp, &r); err != nil {
 		return nil, fmt.Errorf("BroadbandQuota JSON decode: %w", err)
 	}
 	if r.Error != "" {
