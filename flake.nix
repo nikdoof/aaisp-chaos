@@ -21,7 +21,7 @@
           ldflags = [ "-X main.version=${version}" ];
 
           # Run `nix build` with this set to lib.fakeHash to obtain the correct hash.
-          vendorHash = "sha256-22jRdJhkmb4VbzFeS575aCfCIw7GZxChPL9hQV5Oemc=";
+          vendorHash = "sha256-oeCSKwDKVwvYQ1fjXXTwQSXNl/upDE3WAAk680vqh3U=";
 
           meta = with pkgs.lib; {
             description = "Prometheus exporter for Andrews & Arnold broadband lines";
