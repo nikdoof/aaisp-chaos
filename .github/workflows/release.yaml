@@ -25,4 +25,5 @@ jobs:
         goversion: "1.22"
         project_path: "./cmd/aaisp_exporter"
         binary_name: "aaisp_exporter"
+        ldflags: "-X main.version=${{ github.ref_name }}"
         extra_files: LICENSE cmd/aaisp_exporter/README.md

@@ -1,8 +1,9 @@
 FROM golang:1.22-alpine3.21 AS build
+ARG VERSION=dev
 WORKDIR /build
 COPY . .
 RUN go mod download
-RUN go build -v ./cmd/aaisp_exporter
+RUN go build -ldflags "-X main.version=${VERSION}" -v ./cmd/aaisp_exporter
 
 FROM alpine:3.21
 WORKDIR /service

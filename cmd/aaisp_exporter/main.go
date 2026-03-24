@@ -193,11 +193,17 @@ func main() {
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	fs.Usage = usage(fs)
 	var (
-		listen    = fs.String("listen", ":8080", "listen `address`")
-		logLevel  = fs.String("log.level", "info", "log `level`")
-		logOutput = fs.String("log.output", "json", "log output `style` (json, console)")
+		listen      = fs.String("listen", ":8080", "listen `address`")
+		logLevel    = fs.String("log.level", "info", "log `level`")
+		logOutput   = fs.String("log.output", "json", "log output `style` (json, console)")
+		showVersion = fs.Bool("version", false, "print version and exit")
 	)
 	fs.Parse(os.Args[1:])
+
+	if *showVersion {
+		fmt.Printf("aaisp_exporter version %s\n", version)
+		os.Exit(0)
+	}
 
 	log := setupLogger(*logLevel, *logOutput)
 
@@ -228,6 +234,14 @@ func main() {
 	prometheus.MustRegister(collector)
 	prometheus.MustRegister(scrapeSuccessGauge)
 	prometheus.MustRegister(prometheus.NewBuildInfoCollector())
+	prometheus.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Name:        "aaisp_exporter_build_info",
+			Help:        "AAISP exporter build information.",
+			ConstLabels: prometheus.Labels{"version": version},
+		},
+		func() float64 { return 1 },
+	))
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", loggingMiddleware(log)(promhttp.HandlerFor(
@@ -252,7 +266,7 @@ func main() {
 		}
 	}()
 
-	log.Info("listening", "addr", *listen)
+	log.Info("starting", "version", version, "addr", *listen)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("server error", "error", err)
 		os.Exit(1)
