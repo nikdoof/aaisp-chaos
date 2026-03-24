@@ -7,40 +7,96 @@
   };
 
   outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
-      in
-      {
-        packages.default = pkgs.buildGoModule rec {
-          pname = "aaisp-exporter";
+    flake-utils.lib.eachDefaultSystem
+      (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
           version = "0.3.0";
+          vendorHash = "sha256-REEJCTpSx2Kt5J93n6vS3nnpl+StPx26nBCzOgV/PDw=";
+        in
+        {
+          packages.default = pkgs.buildGoModule rec {
+            pname = "aaisp-exporter";
+            inherit version vendorHash;
 
-          src = ./.;
-          subPackages = [ "cmd/aaisp_exporter" ];
-          ldflags = [ "-X main.version=${version}" ];
+            src = ./.;
+            subPackages = [ "cmd/aaisp_exporter" ];
+            ldflags = [ "-X main.version=${version}" ];
 
-          # Run `nix build` with this set to lib.fakeHash to obtain the correct hash.
-          vendorHash = "sha256-oeCSKwDKVwvYQ1fjXXTwQSXNl/upDE3WAAk680vqh3U=";
-
-          meta = with pkgs.lib; {
-            description = "Prometheus exporter for Andrews & Arnold broadband lines";
-            homepage = "https://github.com/nikdoof/aaisp-chaos";
-            license = licenses.mit;
-            mainProgram = "aaisp_exporter";
-            platforms = platforms.unix;
+            meta = with pkgs.lib; {
+              description = "Prometheus exporter for Andrews & Arnold broadband lines";
+              homepage = "https://github.com/nikdoof/aaisp-chaos";
+              license = licenses.mit;
+              mainProgram = "aaisp_exporter";
+              platforms = platforms.unix;
+            };
           };
-        };
 
-        apps.default = flake-utils.lib.mkApp {
-          drv = self.packages.${system}.default;
-        };
+          checks = {
+            # Run the full test suite across all packages
+            tests = pkgs.buildGoModule {
+              pname = "aaisp-exporter-tests";
+              inherit version vendorHash;
+              src = ./.;
+              doCheck = true;
+              installPhase = "touch $out";
+            };
 
-        devShells.default = pkgs.mkShell {
-          packages = with pkgs; [ go gopls gotools ];
-        };
-      }
-    ) // {
+            # Run golangci-lint
+            lint = pkgs.buildGoModule {
+              pname = "aaisp-exporter-lint";
+              inherit version vendorHash;
+              src = ./.;
+              nativeBuildInputs = [ pkgs.golangci-lint ];
+              buildPhase = ''
+                export GOLANGCI_LINT_CACHE=$TMPDIR
+                golangci-lint run ./...
+              '';
+              installPhase = "touch $out";
+              doCheck = false;
+            };
+
+            # Check Nix formatting
+            fmt = pkgs.runCommand "nixpkgs-fmt-check" { } ''
+              ${pkgs.nixpkgs-fmt}/bin/nixpkgs-fmt --check ${./flake.nix}
+              touch $out
+            '';
+          };
+
+          apps.default = flake-utils.lib.mkApp {
+            drv = self.packages.${system}.default;
+          };
+
+          devShells.default = pkgs.mkShell {
+            packages = with pkgs; [
+              # Go toolchain
+              go
+              gopls
+              gotools # goimports, godoc, etc.
+              golangci-lint
+
+              # Nix development
+              nil # Nix language server
+              nixpkgs-fmt # Nix formatter
+            ];
+
+            shellHook = ''
+              echo "AAISP Chaos development shell"
+              echo ""
+              echo "Go commands:"
+              echo "  go build ./cmd/aaisp_exporter  build the exporter"
+              echo "  go test ./...                  run all tests"
+              echo "  golangci-lint run              lint the codebase"
+              echo ""
+              echo "Nix commands:"
+              echo "  nix build                      build the package"
+              echo "  nix flake check                run all checks"
+              echo "  nixpkgs-fmt flake.nix          format the flake"
+              echo ""
+            '';
+          };
+        }
+      ) // {
       nixosModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.services.aaisp-exporter;
@@ -93,9 +149,12 @@
               serviceConfig = {
                 ExecStart = lib.escapeShellArgs [
                   "${pkg}/bin/aaisp_exporter"
-                  "-listen" cfg.listenAddress
-                  "-log.level" cfg.logLevel
-                  "-log.output" cfg.logOutput
+                  "-listen"
+                  cfg.listenAddress
+                  "-log.level"
+                  cfg.logLevel
+                  "-log.output"
+                  cfg.logOutput
                 ];
 
                 EnvironmentFile = cfg.environmentFile;

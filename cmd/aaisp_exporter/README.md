@@ -63,3 +63,62 @@ docker run -e CHAOS_CONTROL_LOGIN=something@a \
            -p 8080:8080 \
            ghcr.io/nikdoof/aaisp-exporter:latest
 ```
+
+### Nix
+
+Run directly without installing:
+
+```sh
+nix run github:nikdoof/aaisp-chaos -- -listen :8080
+```
+
+Install into a profile:
+
+```sh
+nix profile install github:nikdoof/aaisp-chaos
+```
+
+#### NixOS module
+
+Add the flake as an input and import the module:
+
+```nix
+# flake.nix
+{
+  inputs = {
+    aaisp-chaos.url = "github:nikdoof/aaisp-chaos";
+  };
+
+  outputs = { nixpkgs, aaisp-chaos, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [
+        aaisp-chaos.nixosModules.default
+        {
+          services.aaisp-exporter = {
+            enable = true;
+            listenAddress = ":8080";
+            # Path to a file containing:
+            #   CHAOS_CONTROL_LOGIN=something@a
+            #   CHAOS_CONTROL_PASSWORD=yourpassword
+            environmentFile = "/run/secrets/aaisp-exporter";
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+The service runs as a dynamic unprivileged user with a hardened systemd unit. Credentials are read from `environmentFile` at runtime and never written to the Nix store.
+
+## Grafana dashboard
+
+An example Grafana dashboard is provided at [`dashboards/aaisp-broadband.json`](../../dashboards/aaisp-broadband.json). Import it via **Dashboards → Import → Upload JSON file**.
+
+The dashboard includes:
+
+- Current download and upload rates
+- Scrape status indicator
+- Quota remaining (bytes and percentage) — only shown for quota-limited lines
+- Download and upload rate history with max vs adjusted rate comparison
+- Quota remaining over time

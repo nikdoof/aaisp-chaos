@@ -16,6 +16,7 @@ import (
 
 	chaos "github.com/nikdoof/aaisp-chaos"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -152,18 +153,18 @@ func loggingMiddleware(log *slog.Logger) func(next http.Handler) http.Handler {
 func usage(fs *flag.FlagSet) func() {
 	return func() {
 		o := fs.Output()
-		fmt.Fprintf(o, "Usage:\n    %s ", os.Args[0])
+		_, _ = fmt.Fprintf(o, "Usage:\n    %s ", os.Args[0])
 		fs.VisitAll(func(f *flag.Flag) {
 			s := fmt.Sprintf(" [-%s", f.Name)
 			if arg, _ := flag.UnquoteUsage(f); len(arg) > 0 {
 				s += " " + arg
 			}
 			s += "]"
-			fmt.Fprint(o, s)
+			_, _ = fmt.Fprint(o, s)
 		})
-		fmt.Fprint(o, "\n\nOptions:\n")
+		_, _ = fmt.Fprint(o, "\n\nOptions:\n")
 		fs.PrintDefaults()
-		fmt.Fprint(o, "\nThe environment variables CHAOS_CONTROL_LOGIN and CHAOS_CONTROL_PASSWORD must be set.\n")
+		_, _ = fmt.Fprint(o, "\nThe environment variables CHAOS_CONTROL_LOGIN and CHAOS_CONTROL_PASSWORD must be set.\n")
 	}
 }
 
@@ -198,7 +199,9 @@ func main() {
 		logOutput   = fs.String("log.output", "json", "log output `style` (json, console)")
 		showVersion = fs.Bool("version", false, "print version and exit")
 	)
-	fs.Parse(os.Args[1:])
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		os.Exit(2)
+	}
 
 	if *showVersion {
 		fmt.Printf("aaisp_exporter version %s\n", version)
@@ -233,7 +236,7 @@ func main() {
 
 	prometheus.MustRegister(collector)
 	prometheus.MustRegister(scrapeSuccessGauge)
-	prometheus.MustRegister(prometheus.NewBuildInfoCollector())
+	prometheus.MustRegister(collectors.NewBuildInfoCollector())
 	prometheus.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Name:        "aaisp_exporter_build_info",
