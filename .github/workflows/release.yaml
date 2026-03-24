@@ -1,4 +1,6 @@
-on: 
+name: Release
+
+on:
   release:
     types: [created]
 
@@ -10,20 +12,20 @@ jobs:
       matrix:
         goos: [linux, windows, darwin]
         goarch: ["386", amd64, arm64]
-        exclude:  
+        exclude:
           - goarch: "386"
-            goos: darwin 
+            goos: darwin
           - goarch: arm64
-            goos: windows 
+            goos: windows
     steps:
-    - uses: actions/checkout@v3
-    - uses: wangyoucao577/go-release-action@v1.36
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        goos: ${{ matrix.goos }}
-        goarch: ${{ matrix.goarch }}
-        goversion: "1.22"
-        project_path: "./cmd/aaisp_exporter"
-        binary_name: "aaisp_exporter"
-        ldflags: "-X main.version=${{ github.ref_name }}"
-        extra_files: LICENSE cmd/aaisp_exporter/README.md
+      - uses: actions/checkout@v3
+      - uses: wangyoucao577/go-release-action@v1.36
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          goos: ${{ matrix.goos }}
+          goarch: ${{ matrix.goarch }}
+          goversion: "1.22"
+          project_path: "./cmd/aaisp_exporter"
+          binary_name: "aaisp_exporter"
+          ldflags: "-X main.version=${{ github.ref_name }}"
+          extra_files: LICENSE cmd/aaisp_exporter/README.md

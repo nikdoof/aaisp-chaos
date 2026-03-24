@@ -1,4 +1,4 @@
-name: ci
+name: Container Build
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
       - "[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
-  docker:
+  container:
     runs-on: ubuntu-latest
     steps:
       - name: Set up QEMU
