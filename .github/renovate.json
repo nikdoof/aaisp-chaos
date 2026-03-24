@@ -1,3 +1,6 @@
 {
-  "extends": ["config:base", "github>nikdoof/renovate-config:github"]
+  "extends": [
+    "config:recommended",
+    "github>nikdoof/renovate-config:github"
+  ]
 }
